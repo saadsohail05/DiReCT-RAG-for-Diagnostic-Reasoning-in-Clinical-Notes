@@ -164,15 +164,6 @@ streamlit run app.py
 - Context Window: Up to 32k tokens
 - Confidence Scoring: Dynamic thresholding with multi-factor analysis
 
-## Technical Documentation
-
-Detailed documentation is available in the `/docs` directory:
-- API Reference
-- Architecture Overview
-- Implementation Guide
-- Performance Optimization
-- Security Guidelines
-
 ## Legal Disclaimer
 
 This system is designed for research and educational purposes only. It should not be used as a substitute for professional medical advice, diagnosis, or treatment. All clinical decision-making should be performed by qualified healthcare providers.

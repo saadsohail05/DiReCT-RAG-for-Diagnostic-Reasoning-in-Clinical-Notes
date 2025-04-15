@@ -14,6 +14,27 @@ from langchain_google_genai import GoogleGenerativeAIEmbeddings
 # Load environment variables
 load_dotenv()
 
+# Required environment variables
+REQUIRED_ENV_VARS = {
+    'NVIDIA_API_KEY': 'NVIDIA AI API key for the LLM',
+    'GOOGLE_API_KEY': 'Google API key for embeddings',
+    'HUGGINGFACE_TOKEN': 'Hugging Face token for model access'
+}
+
+# Check for missing environment variables
+missing_vars = []
+for var, description in REQUIRED_ENV_VARS.items():
+    if not os.getenv(var):
+        missing_vars.append(f"{var} ({description})")
+
+# If running in Streamlit Cloud or other deployment environment
+if missing_vars:
+    st.error("Missing required environment variables. Please set the following in your deployment environment:")
+    for var in missing_vars:
+        st.code(var)
+    st.info("These variables should be set in your deployment platform's environment configuration, not in a .env file.")
+    st.stop()
+
 # RAG prompt template
 template = """You are an expert medical AI assistant specialized in clinical decision support. Use the following retrieved medical documents to answer the question.
 
@@ -277,46 +298,66 @@ if 'initialized' not in st.session_state:
 
 # Initialize RAG system
 if not st.session_state.initialized:
-    with st.spinner("Loading RAG system..."):
-        # Initialize embeddings
-        embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/embedding-001",
-            task_type="retrieval_document"
-        )
-        
-        db_directory = "chroma_db"
-        
-        # Load existing ChromaDB or create new if doesn't exist
-        if not os.path.exists(db_directory):
-            st.warning("Database not found. Please run mainfile.py first to create the database.")
-            st.stop()
+    try:
+        with st.spinner("Loading RAG system..."):
+            # Initialize embeddings with error handling
+            try:
+                embeddings = GoogleGenerativeAIEmbeddings(
+                    model="models/embedding-001",
+                    task_type="retrieval_document"
+                )
+            except Exception as e:
+                st.error(f"Failed to initialize embeddings: {str(e)}")
+                st.info("Please verify your GOOGLE_API_KEY is set correctly in the deployment environment.")
+                st.stop()
             
-        vectorstore = Chroma(
-            persist_directory=db_directory,
-            embedding_function=embeddings
-        )
+            db_directory = "chroma_db"
+            
+            # Load existing ChromaDB or create new if doesn't exist
+            if not os.path.exists(db_directory):
+                st.error("Database not found. The ChromaDB files must be included in your deployment.")
+                st.info("Please run mainfile.py first to create the database, then include the chroma_db directory in your deployment.")
+                st.stop()
+            
+            try:
+                vectorstore = Chroma(
+                    persist_directory=db_directory,
+                    embedding_function=embeddings
+                )
+            except Exception as e:
+                st.error(f"Failed to initialize vector store: {str(e)}")
+                st.stop()
 
-        # Set up retriever with same parameters as mainfile.py
-        st.session_state.retriever = vectorstore.as_retriever(
-            search_type="mmr",
-            search_kwargs={
-                "k": 5,
-                "fetch_k": 10,
-                "lambda_mult": 0.7,
-            }
-        )
+            # Set up retriever with same parameters as mainfile.py
+            st.session_state.retriever = vectorstore.as_retriever(
+                search_type="mmr",
+                search_kwargs={
+                    "k": 5,
+                    "fetch_k": 10,
+                    "lambda_mult": 0.7,
+                }
+            )
 
-        # Initialize LLM and RAG chain
-        llm = ChatNVIDIA(model="writer/palmyra-med-70b-32k")
-        prompt = ChatPromptTemplate.from_template(template)
-        st.session_state.rag_chain = (
-            {"context": st.session_state.retriever | format_docs, "question": RunnablePassthrough()}
-            | prompt
-            | llm
-            | StrOutputParser()
-        )
+            # Initialize LLM with error handling
+            try:
+                llm = ChatNVIDIA(model="writer/palmyra-med-70b-32k")
+            except Exception as e:
+                st.error(f"Failed to initialize NVIDIA LLM: {str(e)}")
+                st.info("Please verify your NVIDIA_API_KEY is set correctly in the deployment environment.")
+                st.stop()
 
-        st.session_state.initialized = True
+            prompt = ChatPromptTemplate.from_template(template)
+            st.session_state.rag_chain = (
+                {"context": st.session_state.retriever | format_docs, "question": RunnablePassthrough()}
+                | prompt
+                | llm
+                | StrOutputParser()
+            )
+
+            st.session_state.initialized = True
+    except Exception as e:
+        st.error(f"Failed to initialize the application: {str(e)}")
+        st.stop()
 
 # Main interface
 st.markdown("### Clinical Query Input")
