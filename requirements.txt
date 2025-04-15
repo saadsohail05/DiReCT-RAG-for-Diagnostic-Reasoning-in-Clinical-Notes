@@ -1,0 +1,12 @@
+streamlit
+langchain
+langchain-community
+langchain-core
+langchain-nvidia-ai-endpoints
+google-generativeai
+sentence-transformers
+chromadb
+python-dotenv
+numpy
+torch
+transformers
