@@ -3,6 +3,7 @@ langchain
 langchain-community
 langchain-core
 langchain-nvidia-ai-endpoints
+langchain-google-genai
 google-generativeai
 sentence-transformers
 chromadb
