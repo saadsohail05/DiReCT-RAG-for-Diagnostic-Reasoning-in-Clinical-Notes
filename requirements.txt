@@ -6,7 +6,7 @@ langchain-nvidia-ai-endpoints
 langchain-google-genai
 google-generativeai
 sentence-transformers
-chromadb
+chromadb>=0.4.22
 python-dotenv
 numpy
 torch
