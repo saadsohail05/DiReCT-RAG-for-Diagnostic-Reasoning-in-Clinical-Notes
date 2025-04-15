@@ -10,6 +10,10 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+import sys
+import pysqlite3
+sys.modules["sqlite3"] = pysqlite3
+
 
 # Load environment variables
 load_dotenv()

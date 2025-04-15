@@ -1,3 +1,6 @@
+pysqlite3-binary>=0.5.2
+chromadb>=0.4.22
+# rest of your dependencies
 streamlit
 langchain
 langchain-community
@@ -6,10 +9,7 @@ langchain-nvidia-ai-endpoints
 langchain-google-genai
 google-generativeai
 sentence-transformers
-chromadb>=0.4.22
-pysqlite3-binary>=0.5.2
 python-dotenv
 numpy
 torch
 transformers
-
