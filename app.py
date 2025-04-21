@@ -10,8 +10,13 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_nvidia_ai_endpoints import ChatNVIDIA
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
 import sys
 import pysqlite3
+import io
+from docx import Document
+import PyPDF2
+import tempfile
 sys.modules["sqlite3"] = pysqlite3
 
 
@@ -241,6 +246,58 @@ def process_response_sections(response_text: str) -> dict:
     
     return sections
 
+def process_uploaded_document(uploaded_file) -> str:
+    """Process uploaded document and extract text content."""
+    content = ""
+    file_extension = uploaded_file.name.split('.')[-1].lower()
+    
+    try:
+        if file_extension == 'txt':
+            content = uploaded_file.getvalue().decode('utf-8')
+        elif file_extension == 'pdf':
+            pdf_reader = PyPDF2.PdfReader(io.BytesIO(uploaded_file.getvalue()))
+            for page in pdf_reader.pages:
+                content += page.extract_text() + "\n"
+        elif file_extension == 'docx':
+            with tempfile.NamedTemporaryFile(delete=False) as tmp_file:
+                tmp_file.write(uploaded_file.getvalue())
+                doc = Document(tmp_file.name)
+                content = "\n".join([paragraph.text for paragraph in doc.paragraphs])
+            os.unlink(tmp_file.name)
+        return content.strip()
+    except Exception as e:
+        st.error(f"Error processing document: {str(e)}")
+        return ""
+
+def generate_clinical_query(document_text: str, gemini_llm) -> str:
+    """Generate a clinical query from document text using Gemini."""
+    prompt = """You are a medical expert. Given the following clinical document text, generate a focused clinical query that captures the main medical concern or diagnostic question. The query should be clear, concise, and medically relevant.
+
+Clinical Document:
+{text}
+
+Generate a clinical query that:
+1. Focuses on the main medical issue
+2. Is phrased as a specific question
+3. Includes relevant clinical details
+4. Is suitable for a medical knowledge base search
+
+Clinical Query:"""
+    
+    try:
+        response = gemini_llm.invoke(prompt.format(text=document_text))
+        # Extract just the content from the Gemini response
+        if hasattr(response, 'content'):
+            return response.content.strip()
+        elif isinstance(response, str):
+            return response.strip()
+        else:
+            st.error("Unexpected response format from Gemini")
+            return ""
+    except Exception as e:
+        st.error(f"Error generating query: {str(e)}")
+        return ""
+
 # Initialize Streamlit app
 st.set_page_config(
     page_title="Clinical Query Assistant",
@@ -299,6 +356,9 @@ st.markdown("""
 # Initialize session state
 if 'initialized' not in st.session_state:
     st.session_state.initialized = False
+    st.session_state.active_tab = "Text Query"  # Initialize active tab
+    st.session_state.document_query = None      # Initialize document query
+    st.session_state.prev_upload = None         # Initialize previous upload tracking
 
 # Initialize RAG system
 if not st.session_state.initialized:
@@ -364,91 +424,139 @@ if not st.session_state.initialized:
         st.stop()
 
 # Main interface
-st.markdown("### Clinical Query Input")
-st.markdown("Enter your clinical question or scenario below:")
-query = st.text_area(
-    label="",
-    placeholder="Example: What are the key diagnostic criteria for acute coronary syndrome?",
-    height=120
-)
+st.markdown("### Input Options")
+
+# Create tabs with state management
+tab_options = ["Text Query", "Upload Clinical Report"]
+query_tab, report_tab = st.tabs(tab_options)
+
+# Handle query tab
+with query_tab:
+    st.markdown("Enter your clinical question or scenario below:")
+    text_query = st.text_area(
+        label="",
+        placeholder="Example: What are the key diagnostic criteria for acute coronary syndrome?",
+        height=120,
+        key="text_query"  # Add key for state persistence
+    )
+
+# Handle report tab
+with report_tab:
+    st.markdown("Upload your clinical report for analysis")
+    uploaded_file = st.file_uploader(
+        "Choose a clinical report file",
+        type=['txt', 'pdf', 'docx'],
+        help="Supported formats: TXT, PDF, DOCX",
+        key="upload_file"  # Add key for state persistence
+    )
+
+    if uploaded_file:
+        # Only process when a new file is uploaded
+        if st.session_state.get("prev_upload") != uploaded_file:
+            st.session_state.prev_upload = uploaded_file
+            document_text = process_uploaded_document(uploaded_file)
+            if document_text:
+                try:
+                    # Initialize Gemini LLM
+                    gemini_llm = ChatGoogleGenerativeAI(
+                        model="gemini-2.0-flash-001",
+                        temperature=0
+                    )
+                    
+                    # Generate and store clinical query in session state
+                    st.session_state.document_query = generate_clinical_query(document_text, gemini_llm)
+                    
+                except Exception as e:
+                    st.error(f"Error processing document: {str(e)}")
+        
+        # Display the stored query if it exists
+        if st.session_state.get("document_query"):
+            st.success("Document processed successfully!")
+            st.markdown("### Generated Clinical Query:")
+            st.markdown(f"_{st.session_state.document_query}_")
+            st.markdown("---")
+            st.markdown("Review the generated query above and click 'Analyze' to process it.")
 
 col1, col2, col3 = st.columns([2,1,1])
 with col1:
-    submit_button = st.button("Analyze Query", use_container_width=True)
+    submit_button = st.button("Analyze", use_container_width=True)
 
-if submit_button and query:
-    with st.spinner("Processing clinical data..."):
-        result = process_medical_query(
-            query,
-            st.session_state.retriever,
-            st.session_state.rag_chain
-        )
-        
-        # Results section
-        st.markdown("---")
-        st.markdown("### Analysis Results")
-        
-        # Confidence metrics in a more visual format
-        metrics_container = st.container()
-        m1, m2, m3 = metrics_container.columns(3)
-        with m1:
-            st.metric(
-                "Overall Confidence",
-                f"{result['confidence']:.2%}",
-                delta=None,
-                delta_color="normal"
+if submit_button:
+    # Use the appropriate query based on which tab's content is available
+    query = st.session_state.get("document_query") or text_query
+    if query:
+        with st.spinner("Processing clinical data..."):
+            result = process_medical_query(
+                query,
+                st.session_state.retriever,
+                st.session_state.rag_chain
             )
-        with m2:
-            st.metric(
-                "Reasoning Quality",
-                f"{result.get('reasoning_confidence', 0):.2%}",
-                delta=None,
-                delta_color="normal"
-            )
-        with m3:
-            st.metric(
-                "Source Consistency",
-                f"{result.get('source_consistency', 0):.2%}",
-                delta=None,
-                delta_color="normal"
-            )
-        
-        # Warnings with better formatting
-        if result["warnings"]:
-            st.markdown("""
-                <div style='background-color: #2f3337; padding: 1rem; border-radius: 4px; margin: 1rem 0; border: 1px solid #404548;'>
-                    <h4 style='color: #e9ecef;'>Important Considerations</h4>
-                    <ul style='color: #adb5bd;'>
-            """ + "".join([f"<li>{warning}</li>" for warning in result["warnings"]]) + """
-                    </ul>
-                </div>
-            """, unsafe_allow_html=True)
-        
-        # Clinical Response
-        st.markdown("#### Clinical Analysis")
-        
-        response_container = st.container()
-        with response_container:
-            response_text = result["answer"]
-            processed_sections = process_response_sections(response_text)
             
-            for section_title, content_lines in processed_sections.items():
-                if content_lines:
-                    content_html = "<br>".join(content_lines)
-                    st.markdown(f"""
-                        <div style='background-color: #2f3337; padding: 1.5rem; border-radius: 4px; margin-bottom: 1.5rem; border: 1px solid #404548;'>
-                            <h5 style='color: #e9ecef; border-bottom: 1px solid #404548; padding-bottom: 0.75rem; margin-bottom: 1rem;'>{section_title}</h5>
-                            <div style='color: #adb5bd; padding: 0.5rem 0; line-height: 1.6;'>
-                                {content_html}
+            # Results section
+            st.markdown("---")
+            st.markdown("### Analysis Results")
+            
+            # Confidence metrics in a more visual format
+            metrics_container = st.container()
+            m1, m2, m3 = metrics_container.columns(3)
+            with m1:
+                st.metric(
+                    "Overall Confidence",
+                    f"{result['confidence']:.2%}",
+                    delta=None,
+                    delta_color="normal"
+                )
+            with m2:
+                st.metric(
+                    "Reasoning Quality",
+                    f"{result.get('reasoning_confidence', 0):.2%}",
+                    delta=None,
+                    delta_color="normal"
+                )
+            with m3:
+                st.metric(
+                    "Source Consistency",
+                    f"{result.get('source_consistency', 0):.2%}",
+                    delta=None,
+                    delta_color="normal"
+                )
+            
+            # Warnings with better formatting
+            if result["warnings"]:
+                st.markdown("""
+                    <div style='background-color: #2f3337; padding: 1rem; border-radius: 4px; margin: 1rem 0; border: 1px solid #404548;'>
+                        <h4 style='color: #e9ecef;'>Important Considerations</h4>
+                        <ul style='color: #adb5bd;'>
+                """ + "".join([f"<li>{warning}</li>" for warning in result["warnings"]]) + """
+                        </ul>
+                    </div>
+                """, unsafe_allow_html=True)
+            
+            # Clinical Response
+            st.markdown("#### Clinical Analysis")
+            
+            response_container = st.container()
+            with response_container:
+                response_text = result["answer"]
+                processed_sections = process_response_sections(response_text)
+                
+                for section_title, content_lines in processed_sections.items():
+                    if content_lines:
+                        content_html = "<br>".join(content_lines)
+                        st.markdown(f"""
+                            <div style='background-color: #2f3337; padding: 1.5rem; border-radius: 4px; margin-bottom: 1.5rem; border: 1px solid #404548;'>
+                                <h5 style='color: #e9ecef; border-bottom: 1px solid #404548; padding-bottom: 0.75rem; margin-bottom: 1rem;'>{section_title}</h5>
+                                <div style='color: #adb5bd; padding: 0.5rem 0; line-height: 1.6;'>
+                                    {content_html}
+                                </div>
                             </div>
-                        </div>
-                    """, unsafe_allow_html=True)
+                        """, unsafe_allow_html=True)
 
-        # Sources in expandable section
-        with st.expander("Reference Sources"):
-            st.markdown("The following clinical sources were consulted:")
-            for idx, source in enumerate(result["sources"], 1):
-                st.markdown(f"**Source {idx}:** {source}")
+            # Sources in expandable section
+            with st.expander("Reference Sources"):
+                st.markdown("The following clinical sources were consulted:")
+                for idx, source in enumerate(result["sources"], 1):
+                    st.markdown(f"**Source {idx}:** {source}")
 
 # Footer with disclaimer
 st.markdown("---")

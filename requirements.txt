@@ -6,10 +6,12 @@ langchain
 langchain-community
 langchain-core
 langchain-nvidia-ai-endpoints
-langchain-google-genai
+langchain-google-genai>=0.0.3
 google-generativeai
 sentence-transformers
 python-dotenv
 numpy
 torch
 transformers
+python-docx>=0.8.11
+PyPDF2>=3.0.0
