@@ -159,10 +159,29 @@ streamlit run app.py
 
 ## Performance Metrics
 
-- Response Generation Time: <5 seconds average
-- Source Retrieval Accuracy: >90% relevance score
-- Context Window: Up to 32k tokens
-- Confidence Scoring: Dynamic thresholding with multi-factor analysis
+### Evaluation Methodology
+- **LLM Judge**: Gemini 2.0 Flash LLM
+  - Acts as an automated clinical QA evaluator
+  - Zero temperature setting for consistent evaluation
+  - Processes full clinical notes for context
+  - Sample size: Up to 100 documents
+
+### Scoring System
+- **Automated Relevance Assessment**:
+  - 1-5 scoring scale where:
+    - 1: Irrelevant/incorrect
+    - 5: Highly accurate and relevant
+  - Independent evaluation per clinical note
+  - Systematic scoring by LLM judge
+- **Model Confidence**:
+  - Built-in confidence metrics
+  - Real-time validation
+  - Automated tracking
+
+### Performance Tracking
+- Comprehensive evaluation pipeline
+- Error handling and logging
+- Category-based performance analysis
 
 ## Legal Disclaimer
 
